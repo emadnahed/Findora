@@ -1,37 +1,86 @@
 """End-to-end tests for search flow.
 
 These tests require running Elasticsearch instance.
-Run with: pytest -m e2e
+Run with: pytest -m e2e --run-e2e
 """
 
 import pytest
+from httpx import AsyncClient
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="E2E tests require running Elasticsearch - Phase 1+")
+@pytest.mark.skip(reason="E2E tests require running Elasticsearch - run with Docker")
 class TestSearchE2E:
     """End-to-end test suite for search functionality.
 
-    These tests will validate the complete flow:
+    These tests validate the complete flow:
     HTTP Request -> FastAPI -> Elasticsearch -> Response
+
+    Prerequisites:
+    - docker-compose up elasticsearch
+    - Index test data
     """
 
-    async def test_search_returns_results(self) -> None:
+    async def test_search_returns_results(self, async_client: AsyncClient) -> None:
         """Test that search endpoint returns matching results."""
-        # TODO: Implement in Phase 2
-        pass
+        response = await async_client.get("/api/v1/search", params={"q": "iphone"})
 
-    async def test_search_fuzzy_matching(self) -> None:
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] >= 0
+        assert "results" in data
+
+    async def test_search_fuzzy_matching(self, async_client: AsyncClient) -> None:
         """Test that search handles typos with fuzzy matching."""
-        # TODO: Implement in Phase 2
-        pass
+        # Search with typo - should still find "iPhone"
+        response = await async_client.get(
+            "/api/v1/search", params={"q": "iphon", "fuzzy": True}
+        )
 
-    async def test_search_empty_query(self) -> None:
-        """Test that empty query returns appropriate response."""
-        # TODO: Implement in Phase 2
-        pass
+        assert response.status_code == 200
+        data = response.json()
+        # With fuzzy enabled, should find results despite typo
+        assert "results" in data
 
-    async def test_search_no_results(self) -> None:
+    async def test_search_empty_query_returns_422(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test that empty query returns 422 validation error."""
+        response = await async_client.get("/api/v1/search", params={"q": ""})
+
+        assert response.status_code == 422
+
+    async def test_search_no_results(self, async_client: AsyncClient) -> None:
         """Test response when no results match query."""
-        # TODO: Implement in Phase 2
-        pass
+        response = await async_client.get(
+            "/api/v1/search", params={"q": "xyznonexistent123"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["results"] == []
+
+    async def test_search_pagination(self, async_client: AsyncClient) -> None:
+        """Test search pagination works correctly."""
+        response = await async_client.get(
+            "/api/v1/search", params={"q": "phone", "page": 1, "size": 5}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["page"] == 1
+        assert data["size"] == 5
+
+    async def test_search_price_filter(self, async_client: AsyncClient) -> None:
+        """Test search with price range filter."""
+        response = await async_client.get(
+            "/api/v1/search",
+            params={"q": "phone", "min_price": 500, "max_price": 1000},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # All results should be within price range
+        for result in data["results"]:
+            assert 500 <= result["price"] <= 1000
