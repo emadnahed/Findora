@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query
 
-from src.models.product import SearchQuery, SearchResponse
+from src.models.product import SearchQuery, SearchResponse, SortField, SortOrder
 from src.services.search import get_search_service
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
@@ -16,12 +16,21 @@ async def search_products(
     size: int = Query(default=10, ge=1, le=100, description="Results per page"),
     min_price: float | None = Query(default=None, description="Minimum price filter"),
     max_price: float | None = Query(default=None, description="Maximum price filter"),
-    category: str | None = Query(default=None, description="Category filter"),
+    category: str | None = Query(default=None, description="Single category filter"),
+    categories: list[str] | None = Query(
+        default=None, description="Multiple categories filter (OR logic)"
+    ),
+    sort_by: SortField = Query(
+        default=SortField.RELEVANCE, description="Field to sort by"
+    ),
+    sort_order: SortOrder = Query(
+        default=SortOrder.DESC, description="Sort order (asc/desc)"
+    ),
 ) -> SearchResponse:
     """Search for products.
 
     Performs a full-text search across product names and descriptions
-    with optional fuzzy matching, price filtering, and category filtering.
+    with optional fuzzy matching, filters, pagination, and sorting.
 
     Args:
         q: Search query string.
@@ -30,7 +39,10 @@ async def search_products(
         size: Number of results per page.
         min_price: Filter by minimum price.
         max_price: Filter by maximum price.
-        category: Filter by category.
+        category: Filter by single category.
+        categories: Filter by multiple categories (OR logic).
+        sort_by: Field to sort results by (relevance, price, name).
+        sort_order: Sort direction (asc/desc).
 
     Returns:
         SearchResponse with matching products and metadata.
@@ -45,6 +57,9 @@ async def search_products(
         min_price=min_price,
         max_price=max_price,
         category=category,
+        categories=categories,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     return await search_service.search(query)
