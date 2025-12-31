@@ -113,6 +113,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
                 "client_error",
                 error_code=exc.error_code,
                 message=exc.message,
+                details=exc.details,
                 path=str(request.url.path),
             )
 
@@ -121,14 +122,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             content=exc.to_dict(),
         )
 
-    # Unexpected exception - log full details
-    logger.exception(
-        "unhandled_exception",
-        exc_type=type(exc).__name__,
-        exc_message=str(exc),
-        path=str(request.url.path),
-    )
-
+    # Unhandled exceptions are logged by request_middleware in main.py
     # Return generic error response using base exception for consistency
     error = FindoraException()
     return JSONResponse(

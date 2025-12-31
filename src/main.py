@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from slowapi.errors import RateLimitExceeded
 
 from src.api.routes.products import router as products_router
 from src.api.routes.search import router as search_router
 from src.config.settings import get_settings
+from src.core.cache import get_search_cache
 from src.core.exceptions import FindoraException, global_exception_handler
 from src.core.logging import (
     bind_request_context,
@@ -18,12 +20,14 @@ from src.core.logging import (
     get_logger,
     setup_logging,
 )
+from src.core.metrics import get_metrics_collector
 from src.core.rate_limit import get_limiter, rate_limit_exceeded_handler
 from src.elastic.client import get_elasticsearch_client
 
 settings = get_settings()
 logger = get_logger(__name__)
 limiter = get_limiter()
+metrics = get_metrics_collector()
 
 
 @asynccontextmanager
@@ -84,6 +88,14 @@ async def request_middleware(request: Request, call_next):  # type: ignore[no-un
         # Calculate duration
         duration_ms = (time.perf_counter() - start_time) * 1000
 
+        # Record metrics (skip for metrics endpoint to avoid recursion)
+        if not request.url.path.startswith("/metrics"):
+            metrics.record_request(
+                endpoint=str(request.url.path),
+                status_code=response.status_code,
+                latency_ms=duration_ms,
+            )
+
         # Log request completion
         logger.info(
             "request_completed",
@@ -121,6 +133,12 @@ async def health_check() -> dict[str, Any]:
     es_connected = await es_client.ping()
     es_health = await es_client.health_check()
 
+    # Get cache stats
+    cache_stats = get_search_cache().stats() if settings.cache_enabled else None
+
+    # Get metrics summary
+    app_metrics = metrics.get_metrics()
+
     # Determine overall status
     cluster_status = es_health.get("status", "unavailable")
     if es_connected and cluster_status in ("green", "yellow"):
@@ -128,11 +146,30 @@ async def health_check() -> dict[str, Any]:
     else:
         overall_status = "degraded"
 
-    return {
+    response: dict[str, Any] = {
         "status": overall_status,
         "version": settings.app_version,
+        "uptime_seconds": app_metrics["uptime_seconds"],
         "elasticsearch": {
             "connected": es_connected,
             "cluster_status": cluster_status,
+            "number_of_nodes": es_health.get("number_of_nodes"),
         },
     }
+
+    if cache_stats:
+        response["cache"] = cache_stats
+
+    return response
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics_endpoint() -> str:
+    """Prometheus-format metrics endpoint."""
+    return metrics.get_prometheus_metrics()
+
+
+@app.get("/metrics/json")
+async def metrics_json() -> dict[str, Any]:
+    """JSON format metrics endpoint."""
+    return metrics.get_metrics()

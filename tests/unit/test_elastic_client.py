@@ -55,6 +55,9 @@ class TestElasticsearchClient:
             mock_es.assert_called_once_with(
                 hosts=[mock_settings.elasticsearch_url],
                 request_timeout=mock_settings.elasticsearch_timeout,
+                max_retries=3,
+                retry_on_timeout=True,
+                connections_per_node=mock_settings.elasticsearch_max_connections_per_host,
             )
             assert result == mock_instance
 

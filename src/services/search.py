@@ -1,9 +1,10 @@
 """Search service for Elasticsearch queries."""
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 from src.config.settings import Settings, get_settings
+from src.core.cache import SearchCache, get_search_cache
 from src.core.logging import get_logger
 from src.elastic.client import ElasticsearchClient, get_elasticsearch_client
 from src.models.product import (
@@ -19,16 +20,47 @@ logger = get_logger(__name__)
 class SearchService:
     """Service for executing search queries against Elasticsearch."""
 
-    def __init__(self, client: ElasticsearchClient, settings: Settings) -> None:
+    def __init__(
+        self,
+        client: ElasticsearchClient,
+        settings: Settings,
+        cache: SearchCache | None = None,
+    ) -> None:
         """Initialize the search service.
 
         Args:
             client: ElasticsearchClient instance.
             settings: Application settings.
+            cache: Optional SearchCache instance for query caching.
         """
         self.client = client
         self.settings = settings
         self.index_name = settings.elasticsearch_index
+        self.cache = cache
+        self.cache_enabled = settings.cache_enabled and cache is not None
+
+    def _get_cache_key_params(self, query: SearchQuery) -> dict[str, Any]:
+        """Get cache key parameters from a search query.
+
+        Args:
+            query: Search query parameters.
+
+        Returns:
+            Dictionary of cache key parameters.
+        """
+        return {
+            "q": query.q,
+            "fuzzy": query.fuzzy,
+            "page": query.page,
+            "size": query.size,
+            "min_price": query.min_price,
+            "max_price": query.max_price,
+            "category": query.category,
+            "categories": query.categories,
+            "sort_by": query.sort_by.value,
+            "sort_order": query.sort_order.value,
+            "index": self.index_name,
+        }
 
     async def search(self, query: SearchQuery) -> SearchResponse:
         """Execute a search query.
@@ -39,6 +71,15 @@ class SearchService:
         Returns:
             SearchResponse with results and metadata.
         """
+        # Check cache first
+        if self.cache_enabled and self.cache:
+            cache_params = self._get_cache_key_params(query)
+            cached_result = self.cache.get(cache_params)
+            if cached_result is not None:
+                logger.debug("search_cache_hit", query=query.q)
+                # Cache stores SearchResponse objects
+                return cast("SearchResponse", cached_result)
+
         es_client = await self.client.get_client()
 
         # Build the query
@@ -83,6 +124,11 @@ class SearchService:
             total_hits=result.total,
             took_ms=result.took_ms,
         )
+
+        # Cache the result
+        if self.cache_enabled and self.cache:
+            cache_params = self._get_cache_key_params(query)
+            self.cache.set(cache_params, result)
 
         return result
 
@@ -245,4 +291,6 @@ def get_search_service() -> SearchService:
     Returns:
         Cached SearchService instance.
     """
-    return SearchService(get_elasticsearch_client(), get_settings())
+    settings = get_settings()
+    cache = get_search_cache() if settings.cache_enabled else None
+    return SearchService(get_elasticsearch_client(), settings, cache)
