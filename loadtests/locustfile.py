@@ -13,7 +13,7 @@ class SearchUser(HttpUser):
 
     wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
 
-    # Sample search terms
+    # Sample search terms (class-level constants, safe for sharing)
     search_terms: ClassVar[list[str]] = [
         "laptop",
         "phone",
@@ -112,7 +112,13 @@ class ProductUser(HttpUser):
 
     wait_time = between(1, 5)
 
-    created_product_ids: ClassVar[list[str]] = []
+    def on_start(self) -> None:
+        """Initialize user-specific state.
+
+        Each user maintains its own list of created product IDs to avoid
+        race conditions in multi-user/distributed load tests.
+        """
+        self.created_product_ids: list[str] = []
 
     def _generate_product_data(self) -> dict:
         """Generate random product data."""
@@ -191,6 +197,7 @@ class MixedUser(HttpUser):
 
     wait_time = between(1, 5)
 
+    # Class-level constants (safe for sharing, read-only)
     search_terms: ClassVar[list[str]] = ["laptop", "phone", "headphones", "camera", "tablet"]
     categories: ClassVar[list[str]] = ["Electronics", "Computers", "Audio"]
 

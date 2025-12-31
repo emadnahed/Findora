@@ -257,8 +257,13 @@ class TestGlobalExceptionHandler:
                 mock_logger.warning.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_logs_unhandled_exception(self) -> None:
-        """Test that unhandled exceptions are logged."""
+    async def test_unhandled_exception_returns_generic_error(self) -> None:
+        """Test that unhandled exceptions return generic error.
+
+        Note: Logging of unhandled exceptions is done in request_middleware,
+        not in the global exception handler. This test verifies the handler
+        returns a proper error response.
+        """
         mock_request = MagicMock(spec=Request)
         mock_request.url = MagicMock()
         mock_request.url.path = "/test"
@@ -267,7 +272,8 @@ class TestGlobalExceptionHandler:
 
         with patch("src.core.exceptions.request_id_var") as mock_var:
             mock_var.get.return_value = None
-            with patch("src.core.exceptions.logger") as mock_logger:
-                await global_exception_handler(mock_request, exc)
 
-                mock_logger.exception.assert_called_once()
+            response = await global_exception_handler(mock_request, exc)
+
+            # Should return 500 with generic error
+            assert response.status_code == 500

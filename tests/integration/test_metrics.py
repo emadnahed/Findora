@@ -48,24 +48,33 @@ class TestMetricsEndpoint:
 
     @pytest.mark.asyncio
     async def test_metrics_contains_search_metrics(self, client: AsyncClient) -> None:
-        """Test that metrics contain search-related metrics."""
+        """Test that metrics contain search-related metrics.
+
+        Uses prometheus-client with labels, so metric names follow
+        the format: metric_name{label="value"} value
+        """
         response = await client.get("/metrics")
         content = response.text
 
+        # Search queries counter with cache_status label
         assert "findora_search_queries_total" in content
-        assert "findora_search_cache_hits_total" in content
-        assert "findora_search_cache_hit_rate" in content
+        # Cache size gauge
+        assert "findora_cache_size" in content
 
     @pytest.mark.asyncio
     async def test_metrics_contains_elasticsearch_metrics(
         self, client: AsyncClient
     ) -> None:
-        """Test that metrics contain Elasticsearch metrics."""
+        """Test that metrics contain Elasticsearch metrics.
+
+        Uses prometheus-client with labels, so metric names follow
+        the format: metric_name{label="value"} value
+        """
         response = await client.get("/metrics")
         content = response.text
 
+        # ES queries counter with status label
         assert "findora_elasticsearch_queries_total" in content
-        assert "findora_elasticsearch_errors_total" in content
 
 
 class TestMetricsJsonEndpoint:
@@ -176,3 +185,27 @@ class TestImprovedHealthCheck:
             assert "connected" in es
             assert "cluster_status" in es
             assert "number_of_nodes" in es
+
+    @pytest.mark.asyncio
+    async def test_health_excludes_cache_when_disabled(
+        self, client: AsyncClient
+    ) -> None:
+        """Test that health check excludes cache stats when cache is disabled."""
+        with (
+            patch("src.main.get_elasticsearch_client") as mock_es,
+            patch("src.main.settings") as mock_settings,
+        ):
+            mock_client = AsyncMock()
+            mock_client.ping.return_value = True
+            mock_client.health_check.return_value = {"status": "green"}
+            mock_es.return_value = mock_client
+
+            # Disable cache in settings
+            mock_settings.cache_enabled = False
+            mock_settings.app_version = "0.1.0"
+
+            response = await client.get("/health")
+            data = response.json()
+
+            # Cache should NOT be in response when disabled
+            assert "cache" not in data

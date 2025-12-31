@@ -1,12 +1,16 @@
-"""In-memory cache with TTL for search results."""
+"""In-memory cache with TTL for search results using cachetools.
+
+Uses cachetools.TTLCache for O(1) get/set operations and efficient
+automatic expiration and eviction of entries.
+"""
 
 import hashlib
 import json
-import time
-from dataclasses import dataclass
 from functools import lru_cache
 from threading import Lock
 from typing import Any
+
+from cachetools import TTLCache
 
 from src.config.settings import get_settings
 from src.core.logging import get_logger
@@ -14,16 +18,13 @@ from src.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-@dataclass
-class CacheEntry:
-    """A cached value with expiration time."""
-
-    value: Any
-    expires_at: float
-
-
 class SearchCache:
-    """Thread-safe in-memory cache for search results with TTL."""
+    """Thread-safe TTL cache for search results using cachetools.
+
+    Uses cachetools.TTLCache which provides O(1) get/set operations
+    and efficient automatic expiration of entries, avoiding the O(N)
+    eviction overhead of manual implementations.
+    """
 
     def __init__(self, ttl_seconds: int = 60, max_size: int = 1000) -> None:
         """Initialize the cache.
@@ -34,7 +35,7 @@ class SearchCache:
         """
         self.ttl_seconds = ttl_seconds
         self.max_size = max_size
-        self._cache: dict[str, CacheEntry] = {}
+        self._cache: TTLCache[str, Any] = TTLCache(maxsize=max_size, ttl=ttl_seconds)
         self._lock = Lock()
         self._hits = 0
         self._misses = 0
@@ -61,26 +62,19 @@ class SearchCache:
             Cached value or None if not found/expired.
         """
         key = self._generate_key(query_params)
-        current_time = time.time()
 
         with self._lock:
-            entry = self._cache.get(key)
+            # TTLCache automatically handles expiration
+            result = self._cache.get(key)
 
-            if entry is None:
+            if result is None:
                 self._misses += 1
                 logger.debug("cache_miss", key=key[:16])
                 return None
 
-            if current_time > entry.expires_at:
-                # Entry has expired
-                del self._cache[key]
-                self._misses += 1
-                logger.debug("cache_expired", key=key[:16])
-                return None
-
             self._hits += 1
             logger.debug("cache_hit", key=key[:16])
-            return entry.value
+            return result
 
     def set(self, query_params: dict[str, Any], value: Any) -> None:
         """Store a value in the cache.
@@ -90,31 +84,11 @@ class SearchCache:
             value: Value to cache.
         """
         key = self._generate_key(query_params)
-        expires_at = time.time() + self.ttl_seconds
 
         with self._lock:
-            # Evict oldest entries if at max size
-            if len(self._cache) >= self.max_size:
-                self._evict_oldest()
-
-            self._cache[key] = CacheEntry(value=value, expires_at=expires_at)
+            # TTLCache automatically handles eviction when at max size
+            self._cache[key] = value
             logger.debug("cache_set", key=key[:16], ttl=self.ttl_seconds)
-
-    def _evict_oldest(self) -> None:
-        """Evict the oldest entries to make room for new ones."""
-        # Remove entries that have expired
-        current_time = time.time()
-        expired_keys = [
-            k for k, v in self._cache.items() if current_time > v.expires_at
-        ]
-        for key in expired_keys:
-            del self._cache[key]
-
-        # If still at max, remove oldest by expiration time
-        if len(self._cache) >= self.max_size:
-            oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k].expires_at)
-            del self._cache[oldest_key]
-            logger.debug("cache_evicted", key=oldest_key[:16])
 
     def clear(self) -> None:
         """Clear all cached entries."""

@@ -1,23 +1,12 @@
-"""Tests for the metrics module."""
+"""Tests for the metrics module.
+
+Tests the MetricsCollector class which uses prometheus-client
+for robust metric types with label support.
+"""
 
 import time
 
-from src.core.metrics import MetricsCollector, RequestMetrics, get_metrics_collector
-
-
-class TestRequestMetrics:
-    """Tests for RequestMetrics dataclass."""
-
-    def test_request_metrics_defaults(self) -> None:
-        """Test default values for RequestMetrics."""
-        metrics = RequestMetrics()
-        assert metrics.total_requests == 0
-        assert metrics.total_errors == 0
-        assert metrics.requests_by_status == {}
-        assert metrics.requests_by_endpoint == {}
-        assert metrics.total_latency_ms == 0.0
-        assert metrics.min_latency_ms == float("inf")
-        assert metrics.max_latency_ms == 0.0
+from src.core.metrics import MetricsCollector, get_metrics_collector
 
 
 class TestMetricsCollector:
@@ -136,18 +125,29 @@ class TestMetricsCollector:
 
         assert metrics["uptime_seconds"] >= 0.1
 
+    def test_update_cache_size(self) -> None:
+        """Test updating cache size gauge."""
+        collector = MetricsCollector()
+        collector.update_cache_size(42)
+
+        prometheus_output = collector.get_prometheus_metrics()
+        assert "findora_cache_size 42.0" in prometheus_output
+
     def test_get_prometheus_metrics(self) -> None:
-        """Test Prometheus format output."""
+        """Test Prometheus format output with labels."""
         collector = MetricsCollector()
         collector.record_request("/test", 200, 50.0)
         collector.record_search_query(cache_hit=True)
 
         prometheus_output = collector.get_prometheus_metrics()
 
+        # Check for metric presence (prometheus-client includes labels)
         assert "findora_uptime_seconds" in prometheus_output
-        assert "findora_requests_total 1" in prometheus_output
-        assert "findora_search_queries_total 1" in prometheus_output
-        assert "findora_search_cache_hits_total 1" in prometheus_output
+        assert "findora_requests_total" in prometheus_output
+        assert "findora_search_queries_total" in prometheus_output
+        # Verify label format is present
+        assert 'endpoint="/test"' in prometheus_output
+        assert 'cache_status="hit"' in prometheus_output
 
     def test_prometheus_format_structure(self) -> None:
         """Test Prometheus output has proper structure."""

@@ -1,19 +1,13 @@
-"""Tests for the search cache module."""
+"""Tests for the search cache module.
+
+Tests the SearchCache class which uses cachetools.TTLCache for
+O(1) get/set operations and efficient automatic expiration.
+"""
 
 import time
 from unittest.mock import patch
 
-from src.core.cache import CacheEntry, SearchCache, get_search_cache
-
-
-class TestCacheEntry:
-    """Tests for CacheEntry dataclass."""
-
-    def test_cache_entry_creation(self) -> None:
-        """Test creating a cache entry."""
-        entry = CacheEntry(value={"test": "data"}, expires_at=time.time() + 60)
-        assert entry.value == {"test": "data"}
-        assert entry.expires_at > time.time()
+from src.core.cache import SearchCache, get_search_cache
 
 
 class TestSearchCache:

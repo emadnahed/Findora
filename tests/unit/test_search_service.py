@@ -747,6 +747,143 @@ class TestPaginationMetadata:
         assert response.results[0].score == 0.0
 
 
+class TestSearchCaching:
+    """Tests for SearchService caching functionality."""
+
+    @pytest.fixture
+    def mock_settings(self) -> Settings:
+        """Provide test settings with cache enabled."""
+        return Settings(
+            elasticsearch_url="http://localhost:9200",
+            elasticsearch_index="test_products",
+            cache_enabled=True,
+        )
+
+    @pytest.fixture
+    def mock_cache(self) -> MagicMock:
+        """Provide mock SearchCache."""
+        cache = MagicMock()
+        cache.get.return_value = None  # Default to cache miss
+        return cache
+
+    @pytest.fixture
+    def mock_elastic_client(self, mock_settings: Settings) -> MagicMock:
+        """Provide mock ElasticsearchClient."""
+        from src.elastic.client import ElasticsearchClient
+
+        client = ElasticsearchClient(mock_settings)
+        client._client = MagicMock()
+        client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {
+                    "total": {"value": 1},
+                    "hits": [
+                        {
+                            "_id": "1",
+                            "_score": 1.5,
+                            "_source": {
+                                "name": "iPhone 15",
+                                "description": "Apple smartphone",
+                                "price": 799.99,
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+        return client
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_stores_result(
+        self,
+        mock_elastic_client: MagicMock,
+        mock_settings: Settings,
+        mock_cache: MagicMock,
+    ) -> None:
+        """Test cache miss executes search and stores result."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings, cache=mock_cache)
+        query = SearchQuery(q="iphone")
+
+        await service.search(query)
+
+        # Should call cache.set with result
+        mock_cache.set.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_returns_cached_result(
+        self,
+        mock_elastic_client: MagicMock,
+        mock_settings: Settings,
+        mock_cache: MagicMock,
+    ) -> None:
+        """Test cache hit returns cached result without ES query."""
+        from src.models.product import SearchResponse, SearchResult
+        from src.services.search import SearchService
+
+        # Set up cache to return a cached response
+        cached_response = SearchResponse(
+            query="iphone",
+            total=1,
+            page=1,
+            size=10,
+            total_pages=1,
+            has_next=False,
+            has_previous=False,
+            results=[
+                SearchResult(
+                    id="1",
+                    name="iPhone 15",
+                    description="Cached result",
+                    price=799.99,
+                    score=1.5,
+                )
+            ],
+            took_ms=5,
+        )
+        mock_cache.get.return_value = cached_response
+
+        service = SearchService(mock_elastic_client, mock_settings, cache=mock_cache)
+        query = SearchQuery(q="iphone")
+
+        result = await service.search(query)
+
+        # Should return cached result
+        assert result.results[0].description == "Cached result"
+        # Should NOT call ES
+        mock_elastic_client._client.search.assert_not_called()
+
+    def test_get_cache_key_params(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test _get_cache_key_params generates correct params."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(
+            q="iphone",
+            fuzzy=True,
+            page=2,
+            size=20,
+            min_price=500.0,
+            max_price=1000.0,
+            category="electronics",
+        )
+
+        params = service._get_cache_key_params(query)
+
+        assert params["q"] == "iphone"
+        assert params["fuzzy"] is True
+        assert params["page"] == 2
+        assert params["size"] == 20
+        assert params["min_price"] == 500.0
+        assert params["max_price"] == 1000.0
+        assert params["category"] == "electronics"
+        assert params["index"] == "test_products"
+
+
 class TestGetSearchService:
     """Tests for get_search_service factory."""
 
