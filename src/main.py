@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from src.api.routes.search import router as search_router
 from src.config.settings import get_settings
 from src.elastic.client import get_elasticsearch_client
 
@@ -14,6 +15,9 @@ app = FastAPI(
     version=settings.app_version,
     debug=settings.debug,
 )
+
+# Include routers
+app.include_router(search_router)
 
 
 @app.get("/health")
