@@ -2,8 +2,12 @@
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Request, Response, status
 
+from src.config.settings import get_settings
+from src.core.exceptions import NotFoundError
+from src.core.logging import get_logger
+from src.core.rate_limit import get_limiter
 from src.models.product import (
     BulkOperationResult,
     IndexResponse,
@@ -13,13 +17,21 @@ from src.models.product import (
 from src.services.indexing import get_indexing_service
 
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
+logger = get_logger(__name__)
+limiter = get_limiter()
+settings = get_settings()
 
 
 @router.post("", response_model=IndexResponse, status_code=status.HTTP_201_CREATED)
-async def create_product(product_data: ProductCreate) -> IndexResponse:
+@limiter.limit(settings.rate_limit_default)
+async def create_product(
+    request: Request, response: Response, product_data: ProductCreate
+) -> IndexResponse:
     """Create a new product.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         product_data: Product data to create.
 
     Returns:
@@ -40,6 +52,12 @@ async def create_product(product_data: ProductCreate) -> IndexResponse:
 
     result = await indexing_service.index_product(product)
 
+    logger.info(
+        "product_created",
+        product_id=product_id,
+        category=product_data.category,
+    )
+
     return IndexResponse(
         id=product_id,
         result=result["result"],
@@ -48,36 +66,46 @@ async def create_product(product_data: ProductCreate) -> IndexResponse:
 
 
 @router.get("/{product_id}", response_model=Product)
-async def get_product(product_id: str) -> Product:
+@limiter.limit(settings.rate_limit_default)
+async def get_product(
+    request: Request, response: Response, product_id: str
+) -> Product:
     """Get a product by ID.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         product_id: ID of the product to retrieve.
 
     Returns:
         Product if found.
 
     Raises:
-        HTTPException: 404 if product not found.
+        NotFoundError: 404 if product not found.
     """
     indexing_service = get_indexing_service()
 
     product = await indexing_service.get_product(product_id)
 
     if product is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Product with ID '{product_id}' not found",
+        raise NotFoundError(
+            message=f"Product with ID '{product_id}' not found",
+            details={"product_id": product_id},
         )
 
     return product
 
 
 @router.put("/{product_id}", response_model=IndexResponse)
-async def update_product(product_id: str, product_data: ProductCreate) -> IndexResponse:
+@limiter.limit(settings.rate_limit_default)
+async def update_product(
+    request: Request, response: Response, product_id: str, product_data: ProductCreate
+) -> IndexResponse:
     """Update an existing product.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         product_id: ID of the product to update.
         product_data: New product data.
 
@@ -85,14 +113,14 @@ async def update_product(product_id: str, product_data: ProductCreate) -> IndexR
         IndexResponse with the update result.
 
     Raises:
-        HTTPException: 404 if product not found.
+        NotFoundError: 404 if product not found.
     """
     indexing_service = get_indexing_service()
 
     if not await indexing_service.product_exists(product_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Product with ID '{product_id}' not found",
+        raise NotFoundError(
+            message=f"Product with ID '{product_id}' not found",
+            details={"product_id": product_id},
         )
 
     product = Product(
@@ -105,6 +133,12 @@ async def update_product(product_id: str, product_data: ProductCreate) -> IndexR
 
     result = await indexing_service.index_product(product)
 
+    logger.info(
+        "product_updated",
+        product_id=product_id,
+        category=product_data.category,
+    )
+
     return IndexResponse(
         id=product_id,
         result=result["result"],
@@ -113,36 +147,48 @@ async def update_product(product_id: str, product_data: ProductCreate) -> IndexR
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_product(product_id: str) -> Response:
+@limiter.limit(settings.rate_limit_default)
+async def delete_product(
+    request: Request, response: Response, product_id: str
+) -> Response:
     """Delete a product by ID.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         product_id: ID of the product to delete.
 
     Returns:
         204 No Content on success.
 
     Raises:
-        HTTPException: 404 if product not found.
+        NotFoundError: 404 if product not found.
     """
     indexing_service = get_indexing_service()
 
     result = await indexing_service.delete_product(product_id)
 
     if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Product with ID '{product_id}' not found",
+        raise NotFoundError(
+            message=f"Product with ID '{product_id}' not found",
+            details={"product_id": product_id},
         )
+
+    logger.info("product_deleted", product_id=product_id)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/bulk", response_model=BulkOperationResult)
-async def bulk_index_products(products: list[Product]) -> BulkOperationResult:
+@limiter.limit(settings.rate_limit_bulk)
+async def bulk_index_products(
+    request: Request, response: Response, products: list[Product]
+) -> BulkOperationResult:
     """Bulk index multiple products.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         products: List of products to index.
 
     Returns:
@@ -150,14 +196,28 @@ async def bulk_index_products(products: list[Product]) -> BulkOperationResult:
     """
     indexing_service = get_indexing_service()
 
-    return await indexing_service.bulk_index_products(products)
+    result = await indexing_service.bulk_index_products(products)
+
+    logger.info(
+        "bulk_products_indexed",
+        total=len(products),
+        success_count=result.success_count,
+        error_count=result.error_count,
+    )
+
+    return result
 
 
 @router.post("/bulk/delete", response_model=BulkOperationResult)
-async def bulk_delete_products(product_ids: list[str]) -> BulkOperationResult:
+@limiter.limit(settings.rate_limit_bulk)
+async def bulk_delete_products(
+    request: Request, response: Response, product_ids: list[str]
+) -> BulkOperationResult:
     """Bulk delete multiple products.
 
     Args:
+        request: The incoming request (required for rate limiting).
+        response: The response object (required for rate limit headers).
         product_ids: List of product IDs to delete.
 
     Returns:
@@ -165,4 +225,13 @@ async def bulk_delete_products(product_ids: list[str]) -> BulkOperationResult:
     """
     indexing_service = get_indexing_service()
 
-    return await indexing_service.bulk_delete_products(product_ids)
+    result = await indexing_service.bulk_delete_products(product_ids)
+
+    logger.info(
+        "bulk_products_deleted",
+        total=len(product_ids),
+        success_count=result.success_count,
+        error_count=result.error_count,
+    )
+
+    return result

@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any
 
 from src.config.settings import Settings, get_settings
+from src.core.logging import get_logger
 from src.elastic.client import ElasticsearchClient, get_elasticsearch_client
 from src.models.product import (
     SearchQuery,
@@ -11,6 +12,8 @@ from src.models.product import (
     SearchResult,
     SortField,
 )
+
+logger = get_logger(__name__)
 
 
 class SearchService:
@@ -60,10 +63,28 @@ class SearchService:
         if sort:
             search_params["sort"] = sort
 
+        logger.debug(
+            "executing_search",
+            query=query.q,
+            fuzzy=query.fuzzy,
+            page=query.page,
+            size=query.size,
+            index=self.index_name,
+        )
+
         es_response = await es_client.search(**search_params)
 
         # Parse results
-        return self._parse_response(query, dict(es_response))
+        result = self._parse_response(query, dict(es_response))
+
+        logger.debug(
+            "search_completed",
+            query=query.q,
+            total_hits=result.total,
+            took_ms=result.took_ms,
+        )
+
+        return result
 
     def _build_query(self, query: SearchQuery) -> dict[str, Any]:
         """Build Elasticsearch query from SearchQuery.
