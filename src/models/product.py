@@ -1,8 +1,24 @@
 """Product models and search schemas."""
 
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class SortField(str, Enum):
+    """Available fields for sorting search results."""
+
+    RELEVANCE = "relevance"
+    PRICE = "price"
+    NAME = "name"
+
+
+class SortOrder(str, Enum):
+    """Sort order direction."""
+
+    ASC = "asc"
+    DESC = "desc"
 
 
 class Product(BaseModel):
@@ -24,7 +40,16 @@ class SearchQuery(BaseModel):
     size: int = Field(default=10, ge=1, le=100, description="Results per page")
     min_price: float | None = Field(default=None, description="Minimum price filter")
     max_price: float | None = Field(default=None, description="Maximum price filter")
-    category: str | None = Field(default=None, description="Category filter")
+    category: str | None = Field(default=None, description="Single category filter")
+    categories: list[str] | None = Field(
+        default=None, description="Multiple categories filter (OR logic)"
+    )
+    sort_by: SortField = Field(
+        default=SortField.RELEVANCE, description="Field to sort results by"
+    )
+    sort_order: SortOrder = Field(
+        default=SortOrder.DESC, description="Sort order (asc/desc)"
+    )
 
 
 class SearchResult(Product):
@@ -43,6 +68,9 @@ class SearchResponse(BaseModel):
     total: int = Field(..., ge=0, description="Total number of matching documents")
     page: int = Field(..., ge=1, description="Current page number")
     size: int = Field(..., ge=1, description="Results per page")
+    total_pages: int = Field(..., ge=0, description="Total number of pages")
+    has_next: bool = Field(..., description="Whether there is a next page")
+    has_previous: bool = Field(..., description="Whether there is a previous page")
     results: list[SearchResult] = Field(
         default_factory=list, description="Search results"
     )

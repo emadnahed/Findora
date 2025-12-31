@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.config.settings import Settings
-from src.models.product import SearchQuery
+from src.models.product import SearchQuery, SortField, SortOrder
 
 
 class TestSearchService:
@@ -393,6 +393,358 @@ class TestSearchQueryBuilder:
 
         assert "highlight" in call_kwargs
         assert "fields" in call_kwargs["highlight"]
+
+    @pytest.mark.asyncio
+    async def test_multi_category_filter(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test multiple categories filter with OR logic."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", categories=["Electronics", "Phones"])
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        query_body = call_kwargs["query"]
+
+        # Should have bool query with terms filter
+        assert "bool" in query_body
+        assert "filter" in query_body["bool"]
+
+        # Find the terms filter
+        filters = query_body["bool"]["filter"]
+        terms_filter = next(
+            (f for f in filters if "terms" in f and "category" in f["terms"]), None
+        )
+        assert terms_filter is not None
+        assert terms_filter["terms"]["category"] == ["Electronics", "Phones"]
+
+    @pytest.mark.asyncio
+    async def test_multi_category_overrides_single_category(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test categories filter takes precedence over single category."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(
+            q="phone", category="Single", categories=["Electronics", "Phones"]
+        )
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        query_body = call_kwargs["query"]
+
+        filters = query_body["bool"]["filter"]
+        # Should use terms (multi) not term (single)
+        terms_filter = next((f for f in filters if "terms" in f), None)
+        term_filter = next((f for f in filters if "term" in f), None)
+
+        assert terms_filter is not None
+        assert term_filter is None
+
+
+class TestSortBuilder:
+    """Tests for sort building functionality."""
+
+    @pytest.fixture
+    def mock_settings(self) -> Settings:
+        """Provide test settings."""
+        return Settings(
+            elasticsearch_url="http://localhost:9200",
+            elasticsearch_index="test_products",
+        )
+
+    @pytest.fixture
+    def mock_elastic_client(self, mock_settings: Settings) -> MagicMock:
+        """Provide mock ElasticsearchClient."""
+        from src.elastic.client import ElasticsearchClient
+
+        client = ElasticsearchClient(mock_settings)
+        client._client = MagicMock()
+        client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 0}, "hits": []},
+            }
+        )
+        return client
+
+    @pytest.mark.asyncio
+    async def test_sort_by_relevance_no_sort_param(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test relevance sorting does not add sort parameter."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", sort_by=SortField.RELEVANCE)
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        assert "sort" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_sort_by_price_asc(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test sorting by price ascending."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", sort_by=SortField.PRICE, sort_order=SortOrder.ASC)
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        assert "sort" in call_kwargs
+        assert call_kwargs["sort"] == [{"price": {"order": "asc"}}]
+
+    @pytest.mark.asyncio
+    async def test_sort_by_price_desc(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test sorting by price descending."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(
+            q="phone", sort_by=SortField.PRICE, sort_order=SortOrder.DESC
+        )
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        assert "sort" in call_kwargs
+        assert call_kwargs["sort"] == [{"price": {"order": "desc"}}]
+
+    @pytest.mark.asyncio
+    async def test_sort_by_name_asc(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test sorting by name ascending uses keyword field."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", sort_by=SortField.NAME, sort_order=SortOrder.ASC)
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        assert "sort" in call_kwargs
+        assert call_kwargs["sort"] == [{"name.keyword": {"order": "asc"}}]
+
+    @pytest.mark.asyncio
+    async def test_sort_by_name_desc(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test sorting by name descending uses keyword field."""
+        from src.services.search import SearchService
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", sort_by=SortField.NAME, sort_order=SortOrder.DESC)
+
+        await service.search(query)
+
+        call_kwargs = mock_elastic_client._client.search.call_args.kwargs
+        assert "sort" in call_kwargs
+        assert call_kwargs["sort"] == [{"name.keyword": {"order": "desc"}}]
+
+
+class TestPaginationMetadata:
+    """Tests for enhanced pagination metadata."""
+
+    @pytest.fixture
+    def mock_settings(self) -> Settings:
+        """Provide test settings."""
+        return Settings(
+            elasticsearch_url="http://localhost:9200",
+            elasticsearch_index="test_products",
+        )
+
+    @pytest.fixture
+    def mock_elastic_client(self, mock_settings: Settings) -> MagicMock:
+        """Provide mock ElasticsearchClient."""
+        from src.elastic.client import ElasticsearchClient
+
+        client = ElasticsearchClient(mock_settings)
+        client._client = MagicMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_pagination_first_page(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test pagination metadata on first page."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 50}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", page=1, size=10)
+
+        response = await service.search(query)
+
+        assert response.total_pages == 5
+        assert response.has_next is True
+        assert response.has_previous is False
+
+    @pytest.mark.asyncio
+    async def test_pagination_middle_page(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test pagination metadata on middle page."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 50}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", page=3, size=10)
+
+        response = await service.search(query)
+
+        assert response.total_pages == 5
+        assert response.has_next is True
+        assert response.has_previous is True
+
+    @pytest.mark.asyncio
+    async def test_pagination_last_page(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test pagination metadata on last page."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 50}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", page=5, size=10)
+
+        response = await service.search(query)
+
+        assert response.total_pages == 5
+        assert response.has_next is False
+        assert response.has_previous is True
+
+    @pytest.mark.asyncio
+    async def test_pagination_single_page(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test pagination metadata when only one page."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 5}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", page=1, size=10)
+
+        response = await service.search(query)
+
+        assert response.total_pages == 1
+        assert response.has_next is False
+        assert response.has_previous is False
+
+    @pytest.mark.asyncio
+    async def test_pagination_no_results(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test pagination metadata with no results."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 0}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="nonexistent", page=1, size=10)
+
+        response = await service.search(query)
+
+        assert response.total_pages == 0
+        assert response.has_next is False
+        assert response.has_previous is False
+
+    @pytest.mark.asyncio
+    async def test_pagination_partial_last_page(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test total_pages calculation with partial last page."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {"total": {"value": 45}, "hits": []},
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", page=1, size=10)
+
+        response = await service.search(query)
+
+        # 45 results / 10 per page = 5 pages (4 full + 1 partial)
+        assert response.total_pages == 5
+
+    @pytest.mark.asyncio
+    async def test_score_defaults_to_zero_when_none(
+        self, mock_elastic_client: MagicMock, mock_settings: Settings
+    ) -> None:
+        """Test score defaults to 0.0 when ES returns None (non-relevance sort)."""
+        from src.services.search import SearchService
+
+        mock_elastic_client._client.search = AsyncMock(
+            return_value={
+                "took": 5,
+                "hits": {
+                    "total": {"value": 1},
+                    "hits": [
+                        {
+                            "_id": "1",
+                            "_score": None,  # ES returns null for non-relevance sort
+                            "_source": {
+                                "name": "Test Product",
+                                "description": "Description",
+                                "price": 99.99,
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+
+        service = SearchService(mock_elastic_client, mock_settings)
+        query = SearchQuery(q="phone", sort_by=SortField.PRICE)
+
+        response = await service.search(query)
+
+        assert response.results[0].score == 0.0
 
 
 class TestGetSearchService:
