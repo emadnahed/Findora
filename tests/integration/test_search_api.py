@@ -20,6 +20,9 @@ class TestSearchEndpoint:
             total=2,
             page=1,
             size=10,
+            total_pages=1,
+            has_next=False,
+            has_previous=False,
             results=[
                 SearchResult(
                     id="1",

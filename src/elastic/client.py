@@ -8,6 +8,9 @@ from elasticsearch import AsyncElasticsearch
 from elasticsearch import ConnectionError as ESConnectionError
 
 from src.config.settings import Settings, get_settings
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ElasticsearchClient:
@@ -43,8 +46,11 @@ class ElasticsearchClient:
         """
         try:
             client = await self.get_client()
-            return await client.ping()
-        except ESConnectionError:
+            result = await client.ping()
+            logger.debug("elasticsearch_ping", success=result)
+            return result
+        except ESConnectionError as e:
+            logger.warning("elasticsearch_ping_failed", error=str(e))
             return False
 
     async def get_cluster_info(self) -> dict[str, Any]:
@@ -66,8 +72,15 @@ class ElasticsearchClient:
         try:
             client = await self.get_client()
             response = await client.cluster.health()
-            return dict(response)
+            result = dict(response)
+            logger.debug(
+                "elasticsearch_health_check",
+                status=result.get("status"),
+                number_of_nodes=result.get("number_of_nodes"),
+            )
+            return result
         except ESConnectionError as e:
+            logger.error("elasticsearch_health_check_failed", error=str(e))
             return {"status": "unavailable", "error": str(e)}
 
     async def connect_with_retry(
@@ -90,9 +103,21 @@ class ElasticsearchClient:
             try:
                 client = await self.get_client()
                 if await client.ping():
+                    logger.info(
+                        "elasticsearch_connected",
+                        attempt=attempt + 1,
+                        url=self.settings.elasticsearch_url,
+                    )
                     return True
             except ESConnectionError:
                 pass
+
+            logger.warning(
+                "elasticsearch_connection_retry",
+                attempt=attempt + 1,
+                max_retries=max_retries,
+                next_delay_seconds=current_delay,
+            )
 
             # Wait before next attempt (except on last attempt)
             if attempt < max_retries - 1:
@@ -100,6 +125,11 @@ class ElasticsearchClient:
                 current_delay *= 2  # Exponential backoff
 
         # All retries failed - clean up
+        logger.error(
+            "elasticsearch_connection_failed",
+            max_retries=max_retries,
+            url=self.settings.elasticsearch_url,
+        )
         await self.close()
         return False
 
