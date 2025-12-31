@@ -9,7 +9,6 @@ from httpx import ASGITransport, AsyncClient
 from src.config.settings import Settings, get_settings
 from src.main import app
 
-
 # ============================================================================
 # Settings Fixtures
 # ============================================================================
