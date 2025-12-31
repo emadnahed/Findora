@@ -1,7 +1,5 @@
 """Unit tests for configuration settings."""
 
-import pytest
-
 from src.config.settings import Settings, get_settings
 
 
