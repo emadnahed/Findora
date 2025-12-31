@@ -95,7 +95,7 @@ async def request_middleware(request: Request, call_next):  # type: ignore[no-un
         response.headers["X-Request-ID"] = request_id
 
         return response
-    except Exception:
+    except Exception:  # pragma: no cover - defensive; Starlette handles most exceptions
         # Log unhandled exceptions (let them propagate for default handling)
         logger.exception(
             "unhandled_exception",

@@ -142,7 +142,7 @@ class SearchService:
             # Use .keyword for exact sorting on text fields
             return [{"name.keyword": {"order": order}}]
 
-        return None
+        return None  # pragma: no cover - defensive fallback, enum ensures valid values
 
     def _build_filters(self, query: SearchQuery) -> list[dict[str, Any]]:
         """Build filter clauses for the query.
