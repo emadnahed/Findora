@@ -3,7 +3,7 @@
 from typing import Any
 
 from src.elastic.index_manager import get_index_manager
-from src.elastic.mappings import PRODUCT_MAPPINGS, PRODUCT_SETTINGS
+from src.elastic.mappings import PRODUCT_MAPPINGS, get_product_settings
 from src.models.product import Product
 from src.services.indexing import get_indexing_service
 
@@ -130,7 +130,7 @@ async def create_index_with_mappings() -> bool:
 
     await index_manager.create_index(
         mappings=PRODUCT_MAPPINGS,
-        settings=PRODUCT_SETTINGS,
+        settings=get_product_settings(),
     )
 
     return True
@@ -182,7 +182,7 @@ async def clear_all_data() -> bool:
     # Recreate with mappings
     await index_manager.create_index(
         mappings=PRODUCT_MAPPINGS,
-        settings=PRODUCT_SETTINGS,
+        settings=get_product_settings(),
     )
 
     return True

@@ -1,9 +1,10 @@
 """Unit tests for Elasticsearch mappings configuration."""
 
+from src.config.settings import Settings
 from src.elastic.mappings import (
     PRODUCT_MAPPINGS,
-    PRODUCT_SETTINGS,
     get_product_index_config,
+    get_product_settings,
 )
 
 
@@ -45,11 +46,23 @@ class TestProductSettings:
 
     def test_settings_has_shards(self) -> None:
         """Test that settings includes shard configuration."""
-        assert "number_of_shards" in PRODUCT_SETTINGS
+        settings = get_product_settings()
+        assert "number_of_shards" in settings
 
     def test_settings_has_replicas(self) -> None:
         """Test that settings includes replica configuration."""
-        assert "number_of_replicas" in PRODUCT_SETTINGS
+        settings = get_product_settings()
+        assert "number_of_replicas" in settings
+
+    def test_settings_uses_custom_values(self) -> None:
+        """Test that settings respects custom configuration."""
+        custom_settings = Settings(
+            elasticsearch_number_of_shards=3,
+            elasticsearch_number_of_replicas=2,
+        )
+        settings = get_product_settings(custom_settings)
+        assert settings["number_of_shards"] == 3
+        assert settings["number_of_replicas"] == 2
 
 
 class TestGetProductIndexConfig:
@@ -69,7 +82,7 @@ class TestGetProductIndexConfig:
         assert config["mappings"] == PRODUCT_MAPPINGS
 
     def test_settings_match(self) -> None:
-        """Test that returned settings match constant."""
+        """Test that returned settings match get_product_settings output."""
         config = get_product_index_config()
 
-        assert config["settings"] == PRODUCT_SETTINGS
+        assert config["settings"] == get_product_settings()

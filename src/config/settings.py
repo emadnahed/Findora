@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     elasticsearch_url: str = "http://localhost:9200"
     elasticsearch_index: str = "products"
     elasticsearch_timeout: int = 30
+    elasticsearch_number_of_shards: int = 1
+    elasticsearch_number_of_replicas: int = 0
 
     # Logging
     log_level: str = "INFO"

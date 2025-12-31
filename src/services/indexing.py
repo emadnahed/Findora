@@ -82,13 +82,7 @@ class IndexingService:
                 id=product_id,
             )
             source = response["_source"]
-            return Product(
-                id=response["_id"],
-                name=source["name"],
-                description=source["description"],
-                price=source["price"],
-                category=source.get("category"),
-            )
+            return Product(id=response["_id"], **source)
         except ESNotFoundError:
             return None
 

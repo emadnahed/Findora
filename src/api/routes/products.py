@@ -42,7 +42,7 @@ async def create_product(product_data: ProductCreate) -> IndexResponse:
 
     return IndexResponse(
         id=product_id,
-        result=result.get("result", "created"),
+        result=result["result"],
         index=indexing_service.index_name,
     )
 
@@ -83,8 +83,17 @@ async def update_product(product_id: str, product_data: ProductCreate) -> IndexR
 
     Returns:
         IndexResponse with the update result.
+
+    Raises:
+        HTTPException: 404 if product not found.
     """
     indexing_service = get_indexing_service()
+
+    if not await indexing_service.product_exists(product_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Product with ID '{product_id}' not found",
+        )
 
     product = Product(
         id=product_id,
@@ -98,7 +107,7 @@ async def update_product(product_id: str, product_data: ProductCreate) -> IndexR
 
     return IndexResponse(
         id=product_id,
-        result=result.get("result", "updated"),
+        result=result["result"],
         index=indexing_service.index_name,
     )
 
