@@ -7,8 +7,11 @@ from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch.helpers import async_bulk
 
 from src.config.settings import Settings, get_settings
+from src.core.logging import get_logger
 from src.elastic.client import ElasticsearchClient, get_elasticsearch_client
 from src.models.product import BulkOperationResult, Product
+
+logger = get_logger(__name__)
 
 
 class IndexingService:
@@ -45,6 +48,13 @@ class IndexingService:
             document=document,
         )
 
+        logger.debug(
+            "product_indexed",
+            product_id=product.id,
+            index=self.index_name,
+            result=response.get("result"),
+        )
+
         return dict(response)
 
     async def delete_product(self, product_id: str) -> dict[str, Any] | None:
@@ -62,8 +72,18 @@ class IndexingService:
                 index=self.index_name,
                 id=product_id,
             )
+            logger.debug(
+                "product_deleted_from_index",
+                product_id=product_id,
+                index=self.index_name,
+            )
             return dict(response)
         except ESNotFoundError:
+            logger.debug(
+                "product_not_found_for_delete",
+                product_id=product_id,
+                index=self.index_name,
+            )
             return None
 
     async def get_product(self, product_id: str) -> Product | None:
@@ -138,6 +158,15 @@ class IndexingService:
 
         # errors can be int (count mode) or list (actual errors)
         error_list = errors if isinstance(errors, list) else []
+
+        logger.debug(
+            "bulk_index_completed",
+            total=len(products),
+            success_count=success_count,
+            error_count=len(error_list),
+            index=self.index_name,
+        )
+
         return BulkOperationResult(
             success_count=success_count,
             error_count=len(error_list),
@@ -180,6 +209,15 @@ class IndexingService:
 
         # errors can be int (count mode) or list (actual errors)
         error_list = errors if isinstance(errors, list) else []
+
+        logger.debug(
+            "bulk_delete_completed",
+            total=len(product_ids),
+            success_count=success_count,
+            error_count=len(error_list),
+            index=self.index_name,
+        )
+
         return BulkOperationResult(
             success_count=success_count,
             error_count=len(error_list),

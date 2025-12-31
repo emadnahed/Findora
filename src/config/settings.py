@@ -32,6 +32,13 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+    log_format: str = "json"  # 'json' for production, 'console' for development
+
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_default: str = "100/minute"
+    rate_limit_search: str = "20/minute"
+    redis_url: str | None = None  # Optional Redis URL for distributed rate limiting
 
 
 @lru_cache
