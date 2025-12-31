@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from src.config.settings import get_settings
 from src.core.logging import get_logger, request_id_var
 
 if TYPE_CHECKING:
@@ -44,11 +45,14 @@ def get_limiter() -> Limiter:
     Returns:
         Configured SlowAPI Limiter instance.
     """
+    settings = get_settings()
     return Limiter(
         key_func=get_client_ip,
-        default_limits=["100/minute"],
+        default_limits=[settings.rate_limit_default],
         headers_enabled=True,
         strategy="fixed-window",
+        storage_uri=settings.redis_url,
+        enabled=settings.rate_limit_enabled,
     )
 
 
@@ -74,7 +78,7 @@ def rate_limit_exceeded_handler(
         limit=str(exc.detail),
     )
 
-    error_response: dict[str, object] = {
+    error_response: dict[str, dict[str, object]] = {
         "error": {
             "code": "RATE_LIMIT_EXCEEDED",
             "message": "Too many requests. Please try again later.",
@@ -83,7 +87,7 @@ def rate_limit_exceeded_handler(
     }
 
     if request_id:
-        error_response["error"]["request_id"] = request_id  # type: ignore[index]
+        error_response["error"]["request_id"] = request_id
 
     response = JSONResponse(
         status_code=429,

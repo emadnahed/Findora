@@ -98,8 +98,6 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     Returns:
         JSONResponse with error details.
     """
-    request_id = request_id_var.get()
-
     if isinstance(exc, FindoraException):
         # Log at appropriate level based on status code
         if exc.status_code >= SERVER_ERROR_THRESHOLD:
@@ -131,17 +129,9 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         path=str(request.url.path),
     )
 
-    # Return generic error response
-    error_response: dict[str, Any] = {
-        "error": {
-            "code": "INTERNAL_ERROR",
-            "message": "An unexpected error occurred",
-        }
-    }
-    if request_id:
-        error_response["error"]["request_id"] = request_id
-
+    # Return generic error response using base exception for consistency
+    error = FindoraException()
     return JSONResponse(
-        status_code=500,
-        content=error_response,
+        status_code=error.status_code,
+        content=error.to_dict(),
     )

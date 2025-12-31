@@ -58,7 +58,6 @@ app.state.limiter = limiter
 
 # Register exception handlers
 app.add_exception_handler(FindoraException, global_exception_handler)
-app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
@@ -96,6 +95,14 @@ async def request_middleware(request: Request, call_next):  # type: ignore[no-un
         response.headers["X-Request-ID"] = request_id
 
         return response
+    except Exception:
+        # Log unhandled exceptions (let them propagate for default handling)
+        logger.exception(
+            "unhandled_exception",
+            path=str(request.url.path),
+            method=request.method,
+        )
+        raise
     finally:
         clear_request_context()
 

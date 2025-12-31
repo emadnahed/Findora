@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Query, Request, Response
 
+from src.config.settings import get_settings
 from src.core.logging import get_logger
 from src.core.rate_limit import get_limiter
 from src.models.product import SearchQuery, SearchResponse, SortField, SortOrder
@@ -10,10 +11,11 @@ from src.services.search import get_search_service
 router = APIRouter(prefix="/api/v1", tags=["search"])
 logger = get_logger(__name__)
 limiter = get_limiter()
+settings = get_settings()
 
 
 @router.get("/search", response_model=SearchResponse)
-@limiter.limit("20/minute")
+@limiter.limit(settings.rate_limit_search)
 async def search_products(
     request: Request,
     response: Response,

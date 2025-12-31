@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Request, Response, status
 
+from src.config.settings import get_settings
 from src.core.exceptions import NotFoundError
 from src.core.logging import get_logger
 from src.core.rate_limit import get_limiter
@@ -18,10 +19,11 @@ from src.services.indexing import get_indexing_service
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 logger = get_logger(__name__)
 limiter = get_limiter()
+settings = get_settings()
 
 
 @router.post("", response_model=IndexResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("100/minute")
+@limiter.limit(settings.rate_limit_default)
 async def create_product(
     request: Request, response: Response, product_data: ProductCreate
 ) -> IndexResponse:
@@ -64,7 +66,7 @@ async def create_product(
 
 
 @router.get("/{product_id}", response_model=Product)
-@limiter.limit("100/minute")
+@limiter.limit(settings.rate_limit_default)
 async def get_product(
     request: Request, response: Response, product_id: str
 ) -> Product:
@@ -95,7 +97,7 @@ async def get_product(
 
 
 @router.put("/{product_id}", response_model=IndexResponse)
-@limiter.limit("100/minute")
+@limiter.limit(settings.rate_limit_default)
 async def update_product(
     request: Request, response: Response, product_id: str, product_data: ProductCreate
 ) -> IndexResponse:
@@ -145,7 +147,7 @@ async def update_product(
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("100/minute")
+@limiter.limit(settings.rate_limit_default)
 async def delete_product(
     request: Request, response: Response, product_id: str
 ) -> Response:
@@ -178,7 +180,7 @@ async def delete_product(
 
 
 @router.post("/bulk", response_model=BulkOperationResult)
-@limiter.limit("50/minute")
+@limiter.limit(settings.rate_limit_bulk)
 async def bulk_index_products(
     request: Request, response: Response, products: list[Product]
 ) -> BulkOperationResult:
@@ -207,7 +209,7 @@ async def bulk_index_products(
 
 
 @router.post("/bulk/delete", response_model=BulkOperationResult)
-@limiter.limit("50/minute")
+@limiter.limit(settings.rate_limit_bulk)
 async def bulk_delete_products(
     request: Request, response: Response, product_ids: list[str]
 ) -> BulkOperationResult:
