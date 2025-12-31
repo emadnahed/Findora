@@ -1,5 +1,7 @@
 """Product models and search schemas."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -45,3 +47,30 @@ class SearchResponse(BaseModel):
         default_factory=list, description="Search results"
     )
     took_ms: int | None = Field(default=None, description="Query execution time in ms")
+
+
+class ProductCreate(BaseModel):
+    """Schema for creating a new product."""
+
+    name: str = Field(..., min_length=1, description="Product name")
+    description: str = Field(..., min_length=1, description="Product description")
+    price: float = Field(..., gt=0, description="Product price (must be positive)")
+    category: str | None = Field(default=None, description="Product category")
+
+
+class BulkOperationResult(BaseModel):
+    """Result of a bulk operation."""
+
+    success_count: int = Field(..., ge=0, description="Number of successful operations")
+    error_count: int = Field(..., ge=0, description="Number of failed operations")
+    errors: list[dict[str, Any]] = Field(
+        default_factory=list, description="Details of failed operations"
+    )
+
+
+class IndexResponse(BaseModel):
+    """Response for single document indexing."""
+
+    id: str = Field(..., description="Document ID")
+    result: str = Field(..., description="Operation result (created/updated)")
+    index: str = Field(..., description="Index name")
