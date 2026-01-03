@@ -35,6 +35,9 @@ class ElasticsearchClient:
             self._client = AsyncElasticsearch(
                 hosts=[self.settings.elasticsearch_url],
                 request_timeout=self.settings.elasticsearch_timeout,
+                max_retries=3,
+                retry_on_timeout=True,
+                connections_per_node=self.settings.elasticsearch_max_connections_per_host,
             )
         return self._client
 

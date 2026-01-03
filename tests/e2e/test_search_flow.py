@@ -1,15 +1,34 @@
 """End-to-end tests for search flow.
 
 These tests require running Elasticsearch instance.
-Run with: pytest -m e2e --run-e2e
+Run with: docker-compose up -d elasticsearch && pytest tests/e2e/ -v
 """
 
+import os
+
+import httpx
 import pytest
 from httpx import AsyncClient
 
 
+def elasticsearch_available() -> bool:
+    """Check if Elasticsearch is running and accessible."""
+    es_url = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
+    try:
+        response = httpx.get(f"{es_url}/_cluster/health", timeout=5.0)
+        return response.status_code == 200
+    except (httpx.ConnectError, httpx.TimeoutException):
+        return False
+
+
+# Skip all tests in this class if Elasticsearch is not available
+pytestmark = pytest.mark.skipif(
+    not elasticsearch_available(),
+    reason="E2E tests require running Elasticsearch - run: docker-compose up -d elasticsearch",
+)
+
+
 @pytest.mark.e2e
-@pytest.mark.skip(reason="E2E tests require running Elasticsearch - run with Docker")
 class TestSearchE2E:
     """End-to-end test suite for search functionality.
 

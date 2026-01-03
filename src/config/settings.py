@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     rate_limit_bulk: str = "50/minute"
     redis_url: str | None = None  # Optional Redis URL for distributed rate limiting
 
+    # Caching
+    cache_enabled: bool = True
+    cache_ttl_seconds: int = 60  # Cache TTL in seconds
+    cache_max_size: int = 1000  # Maximum cache entries
+
+    # Connection Pooling
+    elasticsearch_max_connections: int = 100
+    elasticsearch_max_connections_per_host: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:
